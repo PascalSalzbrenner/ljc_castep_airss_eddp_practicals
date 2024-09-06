@@ -1,0 +1,19 @@
+%block lattice_cart
+  0.0000000   2.7940632   2.7940632
+  2.7940632   0.0000000   2.7940632
+  2.7940632   2.7940632   0.0000000
+%endblock lattice_cart
+
+%block positions_frac
+ Cl  0.500000000  0.500000000  0.500000000
+ Na  0.000000000  0.000000000  0.000000000
+%endblock positions_frac
+
+%block species_pot
+NCP
+%endblock species_pot
+
+symmetry_generate
+snap_to_symmetry
+
+kpoints_mp_spacing 0.03 1/Ang

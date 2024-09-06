@@ -1,0 +1,72 @@
+#!/bin/bash
+
+# run in directory containing input files for a CASTEP run
+# go from least dense (first_spacing) to most dense (final_spacing) grid in increments of spacing_reduction
+
+# input parameters for the convergence test run
+# $ indicates a variable in bash, $num enumerates the input parameters
+# run with <script> <$1> <$2> <$3>
+first_spacing=$1 # the sparsest k-point spacing at which we want to run the convergence test
+final_spacing=$2 # the densest k-point spacing at which we want to run the convergence test
+spacing_reduction=$3 # the step between different spacings
+
+# auto-determine fileroot
+# make sure there is only one .param file present in your directory!
+name=`ls *.param`
+fileroot=${name%.param}
+
+# checks if output file is present; if not, creates that file and writes a header line
+if [ ! -f kpoints_mp_spacing.txt ]; then
+        echo "K-point grid density [1/Ang]; Total calculated energy per atom [eV]; Time [s]" >> kpoints_mp_spacing.txt
+fi
+
+# iteration according to your input parameters
+while [ `python3 -c "print(int($first_spacing >= $final_spacing))"` -eq 1 ]; do
+
+	# make new directory for the current k-point spacing
+	mkdir spacing_${first_spacing}
+	# copy all the relevant files into the directory
+	cp ${fileroot}.* spacing_${first_spacing}
+	cp *.usp* spacing_${first_spacing}
+	cp *pot* spacing_${first_spacing}
+	
+	cd spacing_${first_spacing}
+	
+	# sed allows for pattern substitution - we begin with an XYZ in the .cell, and substitute it here for the actual spacing
+	sed -i "s/XYZ/${first_spacing}/gi" ${fileroot}.cell
+
+	# run the actual CASTEP calculation, parallelised over 8 nodes
+	mpirun -n 8 castep.mpi $fileroot
+
+	# the output format for the energy is different between SOC and not SOC calculations, so here we determine which it is
+	is_soc=`awk '/spin-orbit coupling/ {print $4}' ${fileroot}.castep | tail -1`
+
+	# the same goes for non-metallic (fix_occupancy=true) and metallic calculations
+        is_non_metallic=`awk '/non-metallic/ {print}' ${fileroot}.castep | tail -1`
+        # this will be empty if the calculations is metallic
+
+	if [ $is_soc == "off" ] && [ `python3 -c "print(int(not '$is_non_metallic'))"` -eq 1 ] || [ $is_soc == "on" ]; then
+                # calculation is metallic not spin-orbit coupled
+                energy=`awk '/Final energy/ {print $5}' ${fileroot}.castep | tail -1`
+        else
+                energy=`awk '/Final energy/ {print $4}' ${fileroot}.castep | tail -1`
+        fi
+	
+	# read out the time taken for the calculation
+	time=`awk '/Total time/ {print $4}' ${fileroot}.castep | tail -1`
+
+	# determine number of atoms per UC in order to calculate the total energy per atom
+	natoms=`grep "Total number of ions in cell" ${fileroot}.castep | tail -1 | awk 'BEGIN {FS="="}; {print $2}'`
+        energy_per_atom=`python3 -c "print(float('$energy')/float('$natoms'))"`
+
+	# write it all to the output file
+        echo $first_spacing $energy_per_atom $time >> ../kpoints_mp_spacing.txt
+
+	# delete output redundant for this calculation
+	rm ${fileroot}.check ${fileroot}.bands ${fileroot}.castep_bin
+	
+	# spacing increment
+	first_spacing=`echo $first_spacing - $spacing_reduction | bc`
+
+	cd ..
+done

@@ -1,0 +1,68 @@
+#!/bin/bash
+
+# run in directory containing input files for a CASTEP run
+
+# input parameters for the convergence test run
+# $ indicates a variable in bash, $num enumerates the input parameters
+# run with <script> <$1> <$2> <$3>
+first_energy=$1 # lowest cutoff energy at which we want to run the convergence test
+final_energy=$2 # highest cutoff energy at which we want to run the convergence test
+energy_step=$3 # energy increment
+
+# auto-determine fileroot
+# make sure there is only one .param file present in your directory!
+name=`ls *.param`
+fileroot=${name%.param}
+
+# checks if output file is present; if not, creates that file and writes a header line
+if [ ! -f cut_off_energy.txt ]; then
+	echo "Cutoff Energy [eV]; Total calculated energy per atom [eV]; Time [s]" >> cut_off_energy.txt
+fi
+
+# iteration according to your input parameters
+for cutoff in `seq $first_energy $energy_step $final_energy`; do
+	
+	# make a new directory for the current cutoff energy
+	mkdir cut_off_energy_${cutoff}
+	# copy all the relevant files into the directory
+	cp ${fileroot}.* cut_off_energy_${cutoff}
+	cp *.usp* cut_off_energy_${cutoff}
+	cp *pot* cut_off_energy_${cutoff}
+	
+	cd cut_off_energy_${cutoff}
+	
+	# sed allows for pattern substitution - we begin with an XYZ in the .param, and substitute it here for the actual energy
+	sed -i "s/XYZ/${cutoff}/gi" ${fileroot}.param
+
+	# run the actual CASTEP calculation, parallelised over 8 nodes
+	mpirun -n 8 castep.mpi $fileroot
+	
+	# the output format for the energy is different between SOC and not SOC calculations, so here we determine which it is
+	is_soc=`awk '/spin-orbit coupling/ {print $4}' ${fileroot}.castep | tail -1`
+
+	# the same goes for non-metallic (fix_occupancy=true) and metallic calculations
+	is_non_metallic=`awk '/non-metallic/ {print}' ${fileroot}.castep | tail -1`
+	# this will be empty if the calculations is metallic
+
+	if [ $is_soc == "off" ] && [ `python3 -c "print(int(not '$is_non_metallic'))"` -eq 1 ] || [ $is_soc == "on" ]; then
+		# calculation is metallic and not spin-orbit coupled
+		energy=`awk '/Final energy/ {print $5}' ${fileroot}.castep | tail -1`
+	else
+		energy=`awk '/Final energy/ {print $4}' ${fileroot}.castep | tail -1`
+	fi	
+
+	# read out the time taken for the calculation
+	time=`awk '/Total time/ {print $4}' ${fileroot}.castep | tail -1`
+
+	# determine number of atoms per UC in order to calculate the total energy per atom
+	natoms=`grep "Total number of ions in cell" ${fileroot}.castep | tail -1 | awk 'BEGIN {FS="="}; {print $2}'`
+	energy_per_atom=`python3 -c "print(float('$energy')/float('$natoms'))"`
+
+	# write it all to the output file
+	echo $cutoff $energy_per_atom $time >> ../cut_off_energy.txt
+	
+	# delete output redundant for this calculation
+	rm ${fileroot}.check ${fileroot}.bands ${fileroot}.castep_bin
+
+	cd ..
+done
