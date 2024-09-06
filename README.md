@@ -5,5 +5,5 @@ Accompanying text, which explains the practicals:
 - [AIRSS + EDDP](https://docs.google.com/document/u/1/d/1ZpekxgzgnDSeSXiBFMbpr9gznKRKzaNl_3DAu9z6y4g/pub)
 
 Note that the practicals require a series of software packages and their prerequisites, most notably
-- CASTEP, which is available to all academics free of charge under a license
+- CASTEP, which is available to all academics free of charge under an [academic license](https://www.castep.org/get_castep).
 - The AIRSS & EDDP suite of codes, available under a GPL2 license and downloadble [here](https://www.mtg.msm.cam.ac.uk/Codes/EDDP).
